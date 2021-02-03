@@ -3,6 +3,8 @@ package goproxy
 import (
 	"bufio"
 	"crypto/tls"
+	_ "fmt"
+	"github.com/elazarl/goproxy/frame"
 	"io"
 	"net/http"
 	"net/url"
@@ -109,9 +111,43 @@ func (proxy *ProxyHttpServer) websocketHandshake(ctx *ProxyCtx, req *http.Reques
 func (proxy *ProxyHttpServer) proxyWebsocket(ctx *ProxyCtx, dest io.ReadWriter, source io.ReadWriter) {
 	errChan := make(chan error, 2)
 	cp := func(dst io.Writer, src io.Reader) {
-		_, err := io.Copy(dst, src)
-		ctx.Warnf("Websocket error: %v", err)
-		errChan <- err
+		reader := bufio.NewReader(src)
+		writer := bufio.NewWriter(dst)
+		for {
+			hybiFacotry := frame.HybiFrameReaderFactory{Reader: reader}
+			frameReader, err := hybiFacotry.NewFrameReader()
+			if err != nil {
+				ctx.Warnf("new frame reader error %v", err)
+				break
+			}
+			payloadLen := frameReader.GetHeader().Length
+			ctx.Logf("frame type is: %d , len is %d ,header length is %d",
+				frameReader.PayloadType(), payloadLen)
+			// 开始读取 frame 数据
+			buf := make([]byte, payloadLen)
+			nr, err := frameReader.Read(buf)
+			if err != nil {
+				ctx.Warnf("frame read error", err)
+			}
+			ctx.Logf("text msg is : %s ,buf len: %d, real len is: %d", string(buf), len(buf), nr)
+
+			// 写入 frame
+			frameWriter := frame.NewFrameWriter(writer, frameReader.GetHeader())
+			nw, err := frameWriter.Write(buf)
+			if err != nil {
+				ctx.Warnf("frame write error %v", err)
+			}
+			ctx.Logf("write msg len is: %d", nw)
+
+			if err != nil {
+				ctx.Warnf("Websocket error: %v", err)
+				errChan <- err
+			}
+		}
+
+		//_, err := io.Copy(dst, src)
+		//ctx.Warnf("Websocket error: %v", err)
+		//errChan <- err
 	}
 
 	// Start proxying websocket data

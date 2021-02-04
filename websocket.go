@@ -6,6 +6,7 @@ import (
 	_ "fmt"
 	"github.com/elazarl/goproxy/frame"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -20,6 +21,10 @@ func headerContains(header http.Header, name string, value string) bool {
 		}
 	}
 	return false
+}
+
+func IsWebSocketRequest(r *http.Request) bool {
+	return isWebSocketRequest(r)
 }
 
 func isWebSocketRequest(r *http.Request) bool {
@@ -45,6 +50,27 @@ func (proxy *ProxyHttpServer) serveWebsocketTLS(ctx *ProxyCtx, w http.ResponseWr
 	}
 
 	// Proxy wss connection
+	proxy.proxyWebsocket(ctx, targetConn, clientConn)
+}
+func (proxy *ProxyHttpServer) ServeWebsocketNonDail(ctx *ProxyCtx, w http.ResponseWriter, req *http.Request, targetConn net.Conn) {
+	// Connect to Client
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		panic("httpserver does not support hijacking")
+	}
+	clientConn, _, err := hj.Hijack()
+	if err != nil {
+		ctx.Warnf("Hijack error: %v", err)
+		return
+	}
+
+	// Perform handshake
+	if err := proxy.websocketHandshake(ctx, req, targetConn, clientConn); err != nil {
+		ctx.Warnf("Websocket handshake error: %v", err)
+		return
+	}
+
+	// Proxy ws connection
 	proxy.proxyWebsocket(ctx, targetConn, clientConn)
 }
 

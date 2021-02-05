@@ -32,6 +32,10 @@ func isWebSocketRequest(r *http.Request) bool {
 		headerContains(r.Header, "Upgrade", "websocket")
 }
 
+func (proxy *ProxyHttpServer) ServeWebsocketTLSNonDail(ctx *ProxyCtx, w http.ResponseWriter, req *http.Request, tlsConfig *tls.Config, clientConn *tls.Conn) {
+	proxy.serveWebsocketTLS(ctx, w, req, tlsConfig, clientConn)
+}
+
 func (proxy *ProxyHttpServer) serveWebsocketTLS(ctx *ProxyCtx, w http.ResponseWriter, req *http.Request, tlsConfig *tls.Config, clientConn *tls.Conn) {
 	targetURL := url.URL{Scheme: "wss", Host: req.URL.Host, Path: req.URL.Path}
 
@@ -63,6 +67,7 @@ func (proxy *ProxyHttpServer) ServeWebsocketNonDail(ctx *ProxyCtx, w http.Respon
 		ctx.Warnf("Hijack error: %v", err)
 		return
 	}
+	defer targetConn.Close()
 
 	// Perform handshake
 	if err := proxy.websocketHandshake(ctx, req, targetConn, clientConn); err != nil {

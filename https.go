@@ -76,7 +76,7 @@ type halfClosable interface {
 
 var _ halfClosable = (*net.TCPConn)(nil)
 
-func (proxy *ProxyHttpServer) HandleHttps(w http.ResponseWriter, r *http.Request, targetConn net.Conn) {
+func (proxy *ProxyHttpServer) HandleHttps(w http.ResponseWriter, r *http.Request, targetConn net.Conn) error {
 	ctx := &ProxyCtx{Req: r, Session: atomic.AddInt64(&proxy.sess, 1), Proxy: proxy, certStore: proxy.CertStore}
 
 	hij, ok := w.(http.Hijacker)
@@ -112,14 +112,14 @@ func (proxy *ProxyHttpServer) HandleHttps(w http.ResponseWriter, r *http.Request
 		tlsConfig, err = todo.TLSConfig(host, ctx)
 		if err != nil {
 			httpError(proxyClient, ctx, err)
-			return
+			return err
 		}
 	}
 	//TODO: cache connections to the remote website
 	rawClientTls := tls.Server(proxyClient, tlsConfig)
 	if err := rawClientTls.Handshake(); err != nil {
 		ctx.Warnf("Cannot handshake client %v %v", r.Host, err)
-		return
+		return err
 	}
 	defer rawClientTls.Close()
 	clientTlsReader := bufio.NewReader(rawClientTls)
@@ -127,11 +127,11 @@ func (proxy *ProxyHttpServer) HandleHttps(w http.ResponseWriter, r *http.Request
 		req, err := http.ReadRequest(clientTlsReader)
 		var ctx = &ProxyCtx{Req: req, Session: atomic.AddInt64(&proxy.sess, 1), Proxy: proxy, UserData: ctx.UserData}
 		if err != nil && err != io.EOF {
-			return
+			return nil
 		}
 		if err != nil {
 			ctx.Warnf("Cannot read TLS request from mitm'd client %v %v", r.Host, err)
-			return
+			return err
 		}
 		req.RemoteAddr = r.RemoteAddr // since we're converting the request, need to carry over the original connecting IP as well
 		ctx.Logf("req %v", r.Host)
@@ -150,17 +150,17 @@ func (proxy *ProxyHttpServer) HandleHttps(w http.ResponseWriter, r *http.Request
 			if isWebSocketRequest(req) {
 				ctx.Logf("Request looks like websocket upgrade.")
 				proxy.ServeWebsocketTLSNonDail(ctx, w, req, tlsConfig, rawClientTls)
-				return
+				return err
 			}
 			if err != nil {
 				ctx.Warnf("Illegal URL %s", "https://"+r.Host+req.URL.Path)
-				return
+				return err
 			}
 			removeProxyHeaders(ctx, req)
 			resp, err = ctx.RoundTrip(req)
 			if err != nil {
 				ctx.Warnf("Cannot read TLS response from mitm'd server %v", err)
-				return
+				return err
 			}
 			ctx.Logf("resp %v", resp.Status)
 		}
@@ -175,7 +175,7 @@ func (proxy *ProxyHttpServer) HandleHttps(w http.ResponseWriter, r *http.Request
 		// always use 1.1 to support chunked encoding
 		if _, err := io.WriteString(rawClientTls, "HTTP/1.1"+" "+statusCode+text+"\r\n"); err != nil {
 			ctx.Warnf("Cannot write TLS response HTTP status from mitm'd client: %v", err)
-			return
+			return err
 		}
 		// Since we don't know the length of resp, return chunked encoded response
 		// TODO: use a more reasonable scheme
@@ -185,27 +185,28 @@ func (proxy *ProxyHttpServer) HandleHttps(w http.ResponseWriter, r *http.Request
 		resp.Header.Set("Connection", "close")
 		if err := resp.Header.Write(rawClientTls); err != nil {
 			ctx.Warnf("Cannot write TLS response header from mitm'd client: %v", err)
-			return
+			return err
 		}
 		if _, err = io.WriteString(rawClientTls, "\r\n"); err != nil {
 			ctx.Warnf("Cannot write TLS response header end from mitm'd client: %v", err)
-			return
+			return err
 		}
 		chunked := newChunkedWriter(rawClientTls)
 		if _, err := io.Copy(chunked, resp.Body); err != nil {
 			ctx.Warnf("Cannot write TLS response body from mitm'd client: %v", err)
-			return
+			return err
 		}
 		if err := chunked.Close(); err != nil {
 			ctx.Warnf("Cannot write TLS chunked EOF from mitm'd client: %v", err)
-			return
+			return err
 		}
 		if _, err = io.WriteString(rawClientTls, "\r\n"); err != nil {
 			ctx.Warnf("Cannot write TLS response chunked trailer from mitm'd client: %v", err)
-			return
+			return err
 		}
 	}
 	ctx.Logf("Exiting on EOF")
+	return nil
 }
 func orPanic(err error) {
 	if err != nil {

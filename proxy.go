@@ -56,6 +56,10 @@ func isEof(r *bufio.Reader) bool {
 	return false
 }
 
+func (proxy *ProxyHttpServer) GetSess() *int64 {
+	return &proxy.sess
+}
+
 func (proxy *ProxyHttpServer) filterRequest(r *http.Request, ctx *ProxyCtx) (req *http.Request, resp *http.Response) {
 	req = r
 	for _, h := range proxy.reqHandlers {

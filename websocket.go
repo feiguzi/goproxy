@@ -152,15 +152,15 @@ func (proxy *ProxyHttpServer) proxyWebsocket(ctx *ProxyCtx, dest io.ReadWriter, 
 				break
 			}
 			payloadLen := frameReader.GetHeader().Length
-			ctx.Logf("frame type is: %d , len is %d ,header length is %d",
-				frameReader.PayloadType(), payloadLen)
+			ctx.Logf("frame type is: %d , len is %d ,header length is %d, final %v",
+				frameReader.PayloadType(), frameReader.Len(), payloadLen, frameReader.GetHeader().Fin)
 			// 开始读取 frame 数据
 			buf := make([]byte, payloadLen)
-			nr, err := frameReader.Read(buf)
+			_, err = frameReader.Read(buf)
 			if err != nil {
 				ctx.Warnf("frame read error", err)
 			}
-			ctx.Logf("text msg is : %s ,buf len: %d, real len is: %d", string(buf), len(buf), nr)
+			//ctx.Logf("text msg is : %s ,buf len: %d, real len is: %d", string(buf), len(buf), nr)
 
 			// 写入 frame
 			frameWriter := frame.NewFrameWriter(writer, frameReader.GetHeader())

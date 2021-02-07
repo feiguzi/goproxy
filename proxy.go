@@ -120,6 +120,41 @@ func removeProxyHeaders(ctx *ProxyCtx, r *http.Request) {
 	r.Header.Del("Connection")
 }
 
+func (proxy *ProxyHttpServer) ServeHTTPWithConn(r *http.Request, clientBuf *bufio.ReadWriter) {
+	ctx := &ProxyCtx{Req: r, Session: atomic.AddInt64(&proxy.sess, 1), Proxy: proxy}
+	var err error
+	ctx.Logf("Got request %v %v %v %v", r.URL.Path, r.Host, r.Method, r.URL.String())
+	r, resp := proxy.filterRequest(r, ctx)
+
+	r.URL.Scheme = "http"
+	r.URL.Host = r.Host
+	if resp == nil {
+		if !proxy.KeepHeader {
+			removeProxyHeaders(ctx, r)
+		}
+		resp, err = ctx.RoundTrip(r)
+		if err != nil {
+			ctx.Error = err
+			resp = proxy.filterResponse(nil, ctx)
+		}
+		if resp != nil {
+			ctx.Logf("Received response %v", resp.Status)
+			resp = proxy.filterResponse(resp, ctx)
+			err = resp.Write(clientBuf)
+			if err != nil {
+				ctx.Error = err
+				ctx.Warnf("writer error", err)
+			}
+			err = clientBuf.Flush()
+			if err != nil {
+				ctx.Error = err
+				ctx.Warnf("writer flush error", err)
+			}
+		}
+
+	}
+}
+
 // Standard net/http function. Shouldn't be used directly, http.Serve will use it.
 func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	//r.Header["X-Forwarded-For"] = w.RemoteAddr()

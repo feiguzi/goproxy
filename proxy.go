@@ -2,6 +2,7 @@ package goproxy
 
 import (
 	"bufio"
+	"bytes"
 	"io"
 	"log"
 	"net"
@@ -19,13 +20,14 @@ type ProxyHttpServer struct {
 	// KeepDestinationHeaders indicates the proxy should retain any headers present in the http.Response before proxying
 	KeepDestinationHeaders bool
 	// setting Verbose to true will log information on each request sent to the proxy
-	Verbose         bool
-	Logger          Logger
-	NonproxyHandler http.Handler
-	reqHandlers     []ReqHandler
-	respHandlers    []RespHandler
-	httpsHandlers   []HttpsHandler
-	Tr              *http.Transport
+	Verbose           bool
+	Logger            Logger
+	NonproxyHandler   http.Handler
+	reqHandlers       []ReqHandler
+	respHandlers      []RespHandler
+	httpsHandlers     []HttpsHandler
+	websocketHandlers []WebsocketHandler
+	Tr                *http.Transport
 	// ConnectDial will be used to create TCP connections for CONNECT requests
 	// if nil Tr.Dial will be used
 	ConnectDial func(network string, addr string) (net.Conn, error)
@@ -77,6 +79,13 @@ func (proxy *ProxyHttpServer) filterResponse(respOrig *http.Response, ctx *Proxy
 	for _, h := range proxy.respHandlers {
 		ctx.Resp = resp
 		resp = h.Handle(resp, ctx)
+	}
+	return
+}
+func (proxy *ProxyHttpServer) handleFrames(buf *bytes.Buffer, ctx *ProxyCtx) (resp *http.Response) {
+	for _, h := range proxy.websocketHandlers {
+		ctx.Resp = resp
+		h.HandleFame(buf, ctx)
 	}
 	return
 }
@@ -205,4 +214,8 @@ func NewProxyHttpServer() *ProxyHttpServer {
 	proxy.ConnectDial = dialerFromEnv(&proxy)
 
 	return &proxy
+}
+
+func (proxy *ProxyHttpServer) AddWebsocketHandler(handler FuncWebsocketHandler) {
+	proxy.websocketHandlers = append(proxy.websocketHandlers, handler)
 }

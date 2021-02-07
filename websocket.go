@@ -2,6 +2,7 @@ package goproxy
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/tls"
 	_ "fmt"
 	"github.com/elazarl/goproxy/frame"
@@ -144,6 +145,7 @@ func (proxy *ProxyHttpServer) proxyWebsocket(ctx *ProxyCtx, dest io.ReadWriter, 
 	cp := func(dst io.Writer, src io.Reader) {
 		reader := bufio.NewReader(src)
 		writer := bufio.NewWriter(dst)
+		message := bytes.NewBuffer([]byte{})
 		for {
 			hybiFacotry := frame.HybiFrameReaderFactory{Reader: reader}
 			frameReader, err := hybiFacotry.NewFrameReader()
@@ -159,6 +161,11 @@ func (proxy *ProxyHttpServer) proxyWebsocket(ctx *ProxyCtx, dest io.ReadWriter, 
 			_, err = frameReader.Read(buf)
 			if err != nil {
 				ctx.Warnf("frame read error", err)
+			}
+			message.Write(buf)
+			if frameReader.GetHeader().Fin {
+				proxy.handleFrames(message, ctx)
+				message = bytes.NewBuffer([]byte{})
 			}
 			//ctx.Logf("text msg is : %s ,buf len: %d, real len is: %d", string(buf), len(buf), nr)
 
